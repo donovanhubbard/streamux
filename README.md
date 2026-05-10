@@ -5,7 +5,7 @@ Have you ever wanted to be a professional streamer, but you didn't want to talk,
 show your face, and you just wanted to share your tmux session? Now you can! People can from around
 the world can share in your tmux session.
 
-![Screenshot of tmux showing the number of active viewers](assets/screnshot.png)
+![Screenshot of tmux showing the number of active viewers](assets/screenshot.png)
 
 
 ## How to watch

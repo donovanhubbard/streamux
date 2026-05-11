@@ -1,0 +1,26 @@
+
+	// Connect to the tmux server conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to connect: %v\n", err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+
+	fmt.Println("connected to", socketPath)
+
+	// Send a message
+	_, err = conn.Write([]byte("hello from client\n"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to write: %v\n", err)
+		return
+	}
+
+	// Read response
+	reader := bufio.NewReader(conn)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to read: %v\n", err)
+		return
+	}
+
+	fmt.Println("server replied:", response)

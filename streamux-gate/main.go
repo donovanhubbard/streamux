@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
+	"slices"
 
 	"charm.land/log/v2"
 	"charm.land/wish/v2"
@@ -15,8 +17,10 @@ import (
 )
 
 const (
-	HOST = "0.0.0.0"
-	PORT = 2222
+	HOST   = "0.0.0.0"
+	PORT   = 2222
+	CTRL_B = byte(0x02)
+	CTRL_C = byte(0x03)
 )
 
 func main() {
@@ -71,6 +75,9 @@ func tmuxHandler(next ssh.Handler) ssh.Handler {
 
 		//Create PTY for tmux
 		log.Debug("Starting cmd")
+		// Start assigns a pseudo-terminal tty os.File to c.Stdin, c.Stdout,
+		// and c.Stderr, calls c.Start, and returns the File of the tty's
+		// corresponding pty.
 		ptmx, err := pty.Start(cmd)
 		if err != nil {
 			fmt.Fprintf(sess, "failed to start tmux: %v\r\n", err)
@@ -90,7 +97,49 @@ func tmuxHandler(next ssh.Handler) ssh.Handler {
 		}()
 		log.Info("Before io.copy go routine")
 
-		go io.Copy(ptmx, sess)
+		go func() {
+			escape_sequence := []byte{CTRL_B, byte('d')}
+			bPressed := false
+			for {
+				buffer := make([]byte, 1024)
+				n, err := sess.Read(buffer)
+
+				if err != nil {
+					if !errors.Is(err, io.EOF) {
+						log.Error("Failed to read from TTY")
+						log.Error(err)
+						return
+					}
+				}
+
+				if bPressed && buffer[0] == byte('d') {
+					log.Info("You hit ctrl+b d")
+					buffer = escape_sequence
+					ptmx.Write(buffer[:2])
+					continue
+				}
+
+				if buffer[0] == CTRL_B {
+					log.Info("You hit ctrl+b")
+					bPressed = true
+				} else {
+					bPressed = false
+				}
+
+				if slices.Index(buffer[:n], CTRL_C) >= 0 {
+					log.Info("You hit ctrl+c")
+					buffer = escape_sequence
+					ptmx.Write(buffer[:2])
+					continue
+				}
+
+				// log.Infof("%q", buffer[:n])
+
+				// ptmx.Write(buffer[:n])
+			}
+		}()
+
+		// go io.Copy(ptmx, sess)
 		io.Copy(sess, ptmx)
 
 		log.Debug("Starting cmd.Wait()")

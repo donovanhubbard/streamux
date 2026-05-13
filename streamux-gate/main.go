@@ -5,15 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"os"
 	"os/exec"
 	"slices"
+	"time"
 
-	"charm.land/log/v2"
 	"charm.land/wish/v2"
-	"charm.land/wish/v2/accesscontrol"
-	"charm.land/wish/v2/logging"
 	"github.com/charmbracelet/ssh"
 	"github.com/creack/pty"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 const (
@@ -23,38 +24,96 @@ const (
 	CTRL_C = byte(0x03)
 )
 
+func setupLogging() *lumberjack.Logger {
+	logRotator := &lumberjack.Logger{
+		Filename:   "./app.log",
+		MaxSize:    50,   // Max size in MB
+		MaxBackups: 3,    // Number of backups
+		MaxAge:     30,   // Days
+		Compress:   true, // Enable compression
+	}
+
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}
+
+	multiWriter := io.MultiWriter(os.Stdout, logRotator)
+	handler := slog.NewTextHandler(multiWriter, opts)
+	logger := slog.New(handler)
+
+	slog.SetDefault(logger)
+
+	return logRotator
+}
+
 func main() {
-	log.SetLevel(log.DebugLevel)
-	log.Info("Staring program")
+	logRotator := setupLogging()
+	defer logRotator.Close()
+	slog.Info("Starting program")
+
+	address := fmt.Sprintf("%s:%d", HOST, PORT)
 	s, err := wish.NewServer(
-		wish.WithAddress(fmt.Sprintf("%s:%d", HOST, PORT)),
+		wish.WithAddress(address),
 		wish.WithHostKeyPath(".ssh/term_info_ed25519"),
 
+		// Middlewares are executed in reverse order they are added
 		wish.WithMiddleware(
 			tmuxHandler,
-			logging.Middleware(),
-			accesscontrol.Middleware("tmux"),
+			slogMiddleware,
 		),
 	)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("Failed to create server", "error", err)
+		os.Exit(1)
 	}
 
-	log.Info("starting SSH server on :2222")
+	slog.Info("Starting SSH listener", "address", address)
 
 	if err := s.ListenAndServe(); err != nil {
-		log.Fatal(err)
+		slog.Error("Failed to start listener", "error", err)
+		os.Exit(1)
 	}
-	log.Info("Server terminated")
+	slog.Info("Server terminated")
 
 }
+
+func slogMiddleware(next ssh.Handler) ssh.Handler {
+	return func(sess ssh.Session) {
+		ct := time.Now()
+		hpk := sess.PublicKey() != nil
+		pty, _, _ := sess.Pty()
+		slog.Info(
+			"User connected",
+			"user", sess.User(),
+			"remote-addr", sess.RemoteAddr().String(),
+			"public-key", hpk,
+			"command", sess.Command(),
+			"term", pty.Term,
+			"width", pty.Window.Width,
+			"height", pty.Window.Height,
+			"client-version", sess.Context().ClientVersion(),
+		)
+
+		next(sess)
+		slog.Info(
+			"User disconnected",
+			"user", sess.User(),
+			"remote-addr", sess.RemoteAddr().String(),
+			"duration", time.Since(ct),
+		)
+	}
+}
+
 func tmuxHandler(next ssh.Handler) ssh.Handler {
 	return func(sess ssh.Session) {
-		log.Debug("Started tmux handler")
 		ptyReq, winCh, ok := sess.Pty()
 		if !ok {
+			slog.Error(
+				"A session did not have an acceptable tty",
+				"source address",
+				sess.RemoteAddr().String(),
+			)
 			sess.Exit(1)
-			return
 		}
 
 		// Start or attach to a tmux session
@@ -73,15 +132,12 @@ func tmuxHandler(next ssh.Handler) ssh.Handler {
 			"LANG=en_US.UTF-8",
 		)
 
-		//Create PTY for tmux
-		log.Debug("Starting cmd")
 		// Start assigns a pseudo-terminal tty os.File to c.Stdin, c.Stdout,
 		// and c.Stderr, calls c.Start, and returns the File of the tty's
 		// corresponding pty.
 		ptmx, err := pty.Start(cmd)
 		if err != nil {
-			fmt.Fprintf(sess, "failed to start tmux: %v\r\n", err)
-			sess.Exit(1)
+			slog.Error("Failed to start command on ssh session.", err, err)
 			return
 		}
 		defer ptmx.Close()
@@ -95,7 +151,6 @@ func tmuxHandler(next ssh.Handler) ssh.Handler {
 				})
 			}
 		}()
-		log.Info("Before io.copy go routine")
 
 		go func() {
 			escape_sequence := []byte{CTRL_B, byte('d')}
@@ -106,45 +161,42 @@ func tmuxHandler(next ssh.Handler) ssh.Handler {
 
 				if err != nil {
 					if !errors.Is(err, io.EOF) {
-						log.Error("Failed to read from TTY")
-						log.Error(err)
+						slog.Error("Failed to read from TTY", "error", err)
 						return
 					}
 				}
 
 				if bPressed && buffer[0] == byte('d') {
-					log.Info("You hit ctrl+b d")
+					slog.Info(
+						"User ended session by pressing escape sequence",
+						"address",
+						sess.RemoteAddr().String())
 					buffer = escape_sequence
 					ptmx.Write(buffer[:2])
 					continue
 				}
 
 				if buffer[0] == CTRL_B {
-					log.Info("You hit ctrl+b")
 					bPressed = true
 				} else {
 					bPressed = false
 				}
 
 				if slices.Index(buffer[:n], CTRL_C) >= 0 {
-					log.Info("You hit ctrl+c")
+					slog.Info(
+						"User ended session by pressing escape sequence",
+						"address",
+						sess.RemoteAddr().String())
 					buffer = escape_sequence
 					ptmx.Write(buffer[:2])
 					continue
 				}
-
-				// log.Infof("%q", buffer[:n])
-
-				// ptmx.Write(buffer[:n])
 			}
 		}()
 
-		// go io.Copy(ptmx, sess)
 		io.Copy(sess, ptmx)
 
-		log.Debug("Starting cmd.Wait()")
 		_ = cmd.Wait()
-		log.Info("After cmd.Wait()")
 		next(sess)
 	}
 }

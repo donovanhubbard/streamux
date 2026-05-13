@@ -8,33 +8,70 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"charm.land/wish/v2"
 	"github.com/charmbracelet/ssh"
 	"github.com/creack/pty"
+	"github.com/spf13/viper"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 const (
 	HOST   = "0.0.0.0"
-	PORT   = 2222
 	CTRL_B = byte(0x02)
 	CTRL_C = byte(0x03)
 )
 
-func setupLogging() *lumberjack.Logger {
+type Config struct {
+	LogFile  string `mapstructure:"logFile"`
+	LogLevel string `mapstructure:"logLevel"`
+	Port     int    `mapstructure:"port"`
+}
+
+func parseLogLevel(level string) slog.Level {
+	switch strings.ToLower(level) {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		fmt.Errorf("invalid log level: %s", level)
+		os.Exit(1)
+	}
+	return slog.LevelDebug
+}
+
+func setupLogging(cfg *Config) *lumberjack.Logger {
 	logRotator := &lumberjack.Logger{
-		Filename:   "./app.log",
+		Filename:   cfg.LogFile,
 		MaxSize:    50,   // Max size in MB
 		MaxBackups: 3,    // Number of backups
 		MaxAge:     30,   // Days
 		Compress:   true, // Enable compression
 	}
 
+	logLevel := parseLogLevel(cfg.LogLevel)
+
 	opts := &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level: logLevel,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			// Check if the current attribute is the 'time' key
+			if a.Key == slog.TimeKey {
+				// Get the time value and format it using a 12-hour layout
+				// "03:04:05PM" is the Go reference for 12-hour format with AM/PM
+				t := a.Value.Time()
+				return slog.String(slog.TimeKey, t.Format("2006-01-02 03:04:05PM -7:00"))
+			}
+			return a
+		},
 	}
 
 	multiWriter := io.MultiWriter(os.Stdout, logRotator)
@@ -46,12 +83,71 @@ func setupLogging() *lumberjack.Logger {
 	return logRotator
 }
 
+func setupConfig(filePath string) *Config {
+	v := viper.New()
+	v.SetConfigFile(filePath)
+	v.SetConfigType("yaml")
+	err := v.ReadInConfig()
+
+	if err != nil {
+		fmt.Println(fmt.Errorf("failed to read config: %w", err))
+		os.Exit(1)
+	}
+
+	if v.IsSet("logFile") == false {
+		fmt.Println("Missing mandatory config 'LogFile'")
+		os.Exit(1)
+	}
+
+	if v.IsSet("port") == false {
+		fmt.Println("Missing mandatory config 'port'")
+		os.Exit(1)
+	}
+
+	if v.IsSet("logLevel") == false {
+		fmt.Println("Missing mandatory config 'logLevel'")
+		os.Exit(1)
+	}
+
+	var cfg Config
+
+	if err := v.Unmarshal(&cfg); err != nil {
+		fmt.Println(fmt.Errorf("failed to unmarshal config: %w", err))
+		os.Exit(1)
+	}
+
+	return &cfg
+
+}
+
+func printUsage() {
+	path, err := os.Executable()
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	programName := filepath.Base(path)
+
+	fmt.Printf("usage: %s -c filePath\n", programName)
+	fmt.Println("Runs a custom SSH server designed to serve tmux clients to the internet.")
+	fmt.Println("  -c filePath    The path to the yaml config file.")
+}
+
 func main() {
-	logRotator := setupLogging()
+	if len(os.Args) != 3 {
+		printUsage()
+		os.Exit(1)
+	}
+
+	configFilePath := os.Args[2]
+	cfg := setupConfig(configFilePath)
+
+	logRotator := setupLogging(cfg)
 	defer logRotator.Close()
 	slog.Info("Starting program")
 
-	address := fmt.Sprintf("%s:%d", HOST, PORT)
+	address := fmt.Sprintf("%s:%d", HOST, cfg.Port)
 	s, err := wish.NewServer(
 		wish.WithAddress(address),
 		wish.WithHostKeyPath(".ssh/term_info_ed25519"),

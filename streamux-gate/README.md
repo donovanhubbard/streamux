@@ -1,31 +1,20 @@
 # Streamux-Gate
 
-Features
-* Readme
-* New logo
-* robust, configurable logging
+![streamux-gate logo](./streamux-gate.png)
+
+Streamux-gate is a more secure and production-ready way to host tmux streaming.
+It uses (charm's wish)[https://github.com/charmbracelet/wish] ssh app library
+to make a custom ssh server.
+
+# Features
+* Bypasses all authentication so end users don't need to know a username/password.
+* Detailed logging.
+* Runs as a service on your MacBook
+* Doesn't run a shell.
+* Blocks all keystrokes to tmux other than the escape sequence
+
+# Installation
+
+# Todo
 * Configurable socket address
-* launchd service information plist file and install instructions
-Bugs
-* the pane background color is too light?
-
-```
-sudo chown root:wheel /Library/LaunchDaemons/net.svenxix.streamux-gate.plist
-sudo chmod 644 /Library/LaunchDaemons/net.svenxix.streamux-gate.plist
-```
-
-sudo launchctl bootstrap system /Library/LaunchDaemons/net.svenxix.streamux-gate.plist
-sudo launchctl enable system/net.svenxix.streamux-gate.plist
-
-// Start the service
-sudo launchctl kickstart -k system/net.svenxix.streamux-gate
-
-// To reload the config
-sudo launchctl bootout system /Library/LaunchDaemons/net.svenxix.streamux-gate.plist
-sudo launchctl bootstrap system /Library/LaunchDaemons/net.svenxix.streamux-gate.plist
-
-// To restart the service
-sudo launchctl kickstart -k system/net.svenxix.streamux-gate
-
-// To stop the service entirely
-sudo launchctl kill SIGTERM system/net.svenxix.streamux-gate
+* Configurable tmux location

@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/ssh"
 	"github.com/creack/pty"
 	"github.com/spf13/viper"
+	"github.com/superstarryeyes/bit/ansifonts"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -26,6 +27,7 @@ const (
 	CTRL_C         = byte(0x03)
 	TMUX_SOCK_PATH = "/var/run/tmux/tmux.sock"
 	TMUX_PATH      = "/opt/homebrew/bin/tmux"
+	DISCORD_LINK   = "https://discord.gg/8DNNcujNBF"
 )
 
 type Config struct {
@@ -154,6 +156,7 @@ func main() {
 		// Middlewares are executed in reverse order they are added
 		wish.WithMiddleware(
 			tmuxHandler,
+			displaySplashScreen,
 			tmuxValidator,
 			slogMiddleware,
 		),
@@ -173,38 +176,88 @@ func main() {
 
 }
 
-func printErrorMessageToSSH(sess ssh.Session) {
-	ptyReq, _, ok := sess.Pty()
-	if !ok {
-		slog.Error(
-			"A session did not have an acceptable tty",
-			"source address",
-			sess.RemoteAddr().String(),
-		)
-		sess.Exit(1)
+func displaySplashScreen(next ssh.Handler) ssh.Handler {
+	return func(sess ssh.Session) {
+		slog.Debug("Displaying splash screen")
+		ptyReq, _, ok := sess.Pty()
+		if !ok {
+			slog.Error(
+				"A session did not have an acceptable tty",
+				"source address",
+				sess.RemoteAddr().String(),
+			)
+			return
+		}
+
+		font, err := ansifonts.LoadFont("entercommand")
+		if err != nil {
+			slog.Error("Failed to load font entercommand.", "error", err)
+		} else {
+
+			// Advanced rendering with options
+			options := ansifonts.RenderOptions{
+				CharSpacing:            1,
+				WordSpacing:            3,
+				LineSpacing:            1,
+				TextColor:              "#FF0000",
+				GradientColor:          "#00FF00",
+				UseGradient:            true,
+				GradientDirection:      ansifonts.LeftRight,
+				Alignment:              ansifonts.CenterAlign,
+				ScaleFactor:            0.5,
+				ShadowEnabled:          false,
+				ShadowHorizontalOffset: 2,
+				ShadowVerticalOffset:   1,
+				ShadowStyle:            ansifonts.MediumShade,
+			}
+			rendered := ansifonts.RenderTextWithOptions("STREAMUX", font, options)
+			sess.Write([]byte("\x1b[?1049h"))
+			titleLength := 46
+
+			paddingWidth := (ptyReq.Window.Width - titleLength) / 2
+			paddingHeight := (ptyReq.Window.Height - 8) / 2
+
+			for range paddingHeight {
+				sess.Write([]byte("\r\n"))
+			}
+
+			for _, line := range rendered {
+				for range paddingWidth {
+					sess.Write([]byte(" "))
+				}
+				sess.Write([]byte(line + "\r\n"))
+			}
+			for range paddingWidth {
+				sess.Write([]byte(" "))
+			}
+			sess.Write([]byte("          " + DISCORD_LINK + "\r\n"))
+
+			cmdString := []string{"sleep", "4"}
+			slog.Debug("executing", "command", strings.Join(cmdString, " "))
+
+			cmd := exec.Command(cmdString[0], cmdString[1:]...)
+
+			cmd.Env = append(cmd.Env,
+				"TERM="+ptyReq.Term,
+				"LANG=en_US.UTF-8",
+			)
+
+			// Start assigns a pseudo-terminal tty os.File to c.Stdin, c.Stdout,
+			// and c.Stderr, calls c.Start, and returns the File of the tty's
+			// corresponding pty.
+			ptmx, err := pty.Start(cmd)
+			if err != nil {
+				slog.Error("Failed to start command on ssh session.", err, err)
+				return
+			}
+			defer ptmx.Close()
+
+			io.Copy(sess, ptmx)
+			_ = cmd.Wait()
+
+			next(sess)
+		}
 	}
-	cmdString := []string{"echo", "We're sorry, but the streaming hasn't started yet."}
-	slog.Debug("executing", "command", strings.Join(cmdString, " "))
-
-	cmd := exec.Command(cmdString[0], cmdString[1:]...)
-
-	// TERM handling matters for tmux
-	cmd.Env = append(cmd.Env,
-		"TERM="+ptyReq.Term,
-		"LANG=en_US.UTF-8",
-	)
-
-	// Start assigns a pseudo-terminal tty os.File to c.Stdin, c.Stdout,
-	// and c.Stderr, calls c.Start, and returns the File of the tty's
-	// corresponding pty.
-	ptmx, err := pty.Start(cmd)
-	if err != nil {
-		slog.Error("Failed to start command on ssh session.", err, err)
-		return
-	}
-	defer ptmx.Close()
-
-	io.Copy(sess, ptmx)
 }
 
 func tmuxValidator(next ssh.Handler) ssh.Handler {
@@ -213,8 +266,8 @@ func tmuxValidator(next ssh.Handler) ssh.Handler {
 		_, err := os.Stat(TMUX_SOCK_PATH)
 		if errors.Is(err, os.ErrNotExist) {
 			slog.Error("tmux socket is missing.", "path", TMUX_SOCK_PATH)
-			printErrorMessageToSSH(sess)
-			return
+			sess.Write([]byte("We're sorry but the streaming hasn't started yet.\r\n"))
+			sess.Exit(1)
 		}
 
 		slog.Debug("Socket found")
@@ -226,8 +279,8 @@ func tmuxValidator(next ssh.Handler) ssh.Handler {
 		slog.Debug("Command ran.", "STDOUT", out)
 		if err != nil {
 			slog.Error("Error", "error", err)
-			printErrorMessageToSSH(sess)
-			return
+			sess.Write([]byte("We're sorry but the streaming hasn't started yet.\r\n"))
+			sess.Exit(1)
 		}
 
 		exitCode := cmd.ProcessState.ExitCode()
@@ -235,8 +288,8 @@ func tmuxValidator(next ssh.Handler) ssh.Handler {
 
 		if exitCode != 0 {
 			slog.Error("Tmux server not running on socket", "path", TMUX_SOCK_PATH)
-			printErrorMessageToSSH(sess)
-			return
+			sess.Write([]byte("We're sorry but the streaming hasn't started yet.\r\n"))
+			sess.Exit(1)
 		}
 		next(sess)
 	}
@@ -362,6 +415,8 @@ func tmuxHandler(next ssh.Handler) ssh.Handler {
 		io.Copy(sess, ptmx)
 
 		_ = cmd.Wait()
+
+		sess.Write([]byte(DISCORD_LINK + "\r\n"))
 		next(sess)
 	}
 }

@@ -336,4 +336,82 @@ letting random people into your house.
 
 
 
+## wireguard
+
+How to setup wireguard
+
+On your VPS server
+
+```
+sudo apt -y install wireguard
+```
+
+generate the server keys.
+```
+sudo su
+umask 077
+wg genkey | tee /etc/wireguard/privatekey_server | wg pubkey | tee /etc/wireguard/publickey_server
+```
+
+On you macbook
+```
+brew install wireguard-tools
+```
+mkdir ~/wireguard
+wg genkey > ~/wireguard/privatekey_client
+cat ~/wireguard/privatekey_client | wg pubkey > ~/wireguard/publickey_client
+```
+
+Create a config file on the VPS at `/etc/wireguard/wg0.conf`
+
+```
+[Interface]
+PrivateKey = <your server private key>
+Address = 10.0.0.1/24
+ListenPort = 51820
+
+[Peer]
+PublicKey = <your client private key>
+AllowedIPs = 10.0.0.2/32
+```
+
+Don't forget to make a hole in your firewall for the ListenPort
+
+On your VPS edit the file `/etc/sysctl.conf`
+
+Edit
+```
+net.ipv4.ip_forward=1
+```
+
+Run this to reload
+```
+sysctl -p
+```
+
+On the macbook install the wireguard client from the apple app store.
+
+Create a client configuration in your home directory.
+```
+[Interface]
+PrivateKey = <Macbook private key>
+Address = 10.0.0.2/24
+ListenPort = 51820
+
+[Peer]
+PublicKey = <VPS public key>
+Endpoint = <public IP of your VPS>:51820 
+AllowedIPs = 10.0.0.1/32
+PersistentKeepalive = 25
+```
+On your macbook open the wireguard client and click `import tunnel from file`.
+Then click on the config file you made.
+
+And you're done! Reference your server with the IP 10.0.0.1.
+
+
+
+
+
+
 

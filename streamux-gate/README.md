@@ -1,6 +1,8 @@
 # Streamux-Gate
+<p align="center">
+  <img src="streamux-gate.png" width="300">
+</p>
 
-![streamux-gate logo](./streamux-gate.png)
 
 Streamux-gate is a more secure and production-ready way to host tmux streaming.
 It uses (charm's wish)[https://github.com/charmbracelet/wish] ssh app library

@@ -1,0 +1,4 @@
+# logFile: streamux-gate.log
+stdout: true
+port: 2233
+logLevel: debug

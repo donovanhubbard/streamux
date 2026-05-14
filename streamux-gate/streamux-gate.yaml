@@ -1,0 +1,3 @@
+logFile: streamux-gate.log
+port: 2233
+logLevel: debug

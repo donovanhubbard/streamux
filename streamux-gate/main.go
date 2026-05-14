@@ -21,9 +21,11 @@ import (
 )
 
 const (
-	HOST   = "0.0.0.0"
-	CTRL_B = byte(0x02)
-	CTRL_C = byte(0x03)
+	HOST           = "0.0.0.0"
+	CTRL_B         = byte(0x02)
+	CTRL_C         = byte(0x03)
+	TMUX_SOCK_PATH = "/var/run/tmux/tmux.sock"
+	TMUX_PATH      = "/opt/homebrew/bin/tmux"
 )
 
 type Config struct {
@@ -74,8 +76,8 @@ func setupLogging(cfg *Config) *lumberjack.Logger {
 		},
 	}
 
-	multiWriter := io.MultiWriter(os.Stdout, logRotator)
-	handler := slog.NewTextHandler(multiWriter, opts)
+	// multiWriter := io.MultiWriter(os.Stdout, logRotator)
+	handler := slog.NewTextHandler(logRotator, opts)
 	logger := slog.New(handler)
 
 	slog.SetDefault(logger)
@@ -155,6 +157,7 @@ func main() {
 		// Middlewares are executed in reverse order they are added
 		wish.WithMiddleware(
 			tmuxHandler,
+			tmuxValidator,
 			slogMiddleware,
 		),
 	)
@@ -171,6 +174,75 @@ func main() {
 	}
 	slog.Info("Server terminated")
 
+}
+
+func printErrorMessageToSSH(sess ssh.Session) {
+	ptyReq, _, ok := sess.Pty()
+	if !ok {
+		slog.Error(
+			"A session did not have an acceptable tty",
+			"source address",
+			sess.RemoteAddr().String(),
+		)
+		sess.Exit(1)
+	}
+	cmdString := []string{"echo", "We're sorry, but the streaming hasn't started yet."}
+	slog.Debug("executing", "command", strings.Join(cmdString, " "))
+
+	cmd := exec.Command(cmdString[0], cmdString[1:]...)
+
+	// TERM handling matters for tmux
+	cmd.Env = append(cmd.Env,
+		"TERM="+ptyReq.Term,
+		"LANG=en_US.UTF-8",
+	)
+
+	// Start assigns a pseudo-terminal tty os.File to c.Stdin, c.Stdout,
+	// and c.Stderr, calls c.Start, and returns the File of the tty's
+	// corresponding pty.
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		slog.Error("Failed to start command on ssh session.", err, err)
+		return
+	}
+	defer ptmx.Close()
+
+	io.Copy(sess, ptmx)
+}
+
+func tmuxValidator(next ssh.Handler) ssh.Handler {
+	return func(sess ssh.Session) {
+		slog.Debug("Checking for socket.", "path", TMUX_SOCK_PATH)
+		_, err := os.Stat(TMUX_SOCK_PATH)
+		if errors.Is(err, os.ErrNotExist) {
+			slog.Error("tmux socket is missing.", "path", TMUX_SOCK_PATH)
+			printErrorMessageToSSH(sess)
+			return
+		}
+
+		slog.Debug("Socket found")
+		cmdString := []string{TMUX_PATH, "-S", TMUX_SOCK_PATH, "list-clients"}
+		slog.Debug("executing", "command", strings.Join(cmdString, " "))
+
+		cmd := exec.Command(cmdString[0], cmdString[1:]...)
+		out, err := cmd.Output()
+		slog.Debug("Command ran.", "STDOUT", out)
+		if err != nil {
+			slog.Error("Error", "error", err)
+			printErrorMessageToSSH(sess)
+			return
+		}
+
+		exitCode := cmd.ProcessState.ExitCode()
+		slog.Debug("Exit code", "code", exitCode)
+
+		if exitCode != 0 {
+			slog.Error("Tmux server not running on socket", "path", TMUX_SOCK_PATH)
+			printErrorMessageToSSH(sess)
+			return
+		}
+		next(sess)
+	}
 }
 
 func slogMiddleware(next ssh.Handler) ssh.Handler {
@@ -215,9 +287,9 @@ func tmuxHandler(next ssh.Handler) ssh.Handler {
 		// Start or attach to a tmux session
 		cmd := exec.CommandContext(
 			context.Background(),
-			"tmux",
+			TMUX_PATH,
 			"-S",
-			"/var/run/tmux/tmux.sock",
+			TMUX_SOCK_PATH,
 			"attach-session",
 			"-r",
 		)

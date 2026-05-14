@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>net.svenxix.streamux-gate</string>
+    <key>Program</key>
+    <string>/Users/tmuxview/streamux-gate</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>streamux-gate</string>
+      <string>-c</string>
+      <string>./streamux-gate.yaml</string>
+    </array>
+
+    <!-- Run as a specific user -->
+    <key>UserName</key>
+    <string>tmuxview</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/tmuxview</string>
+
+    <!-- Keeps the service running; if it crashes, it restarts -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Recommended: Logs for debugging -->
+    <key>StandardOutPath</key>
+    <string>/Users/tmuxview/streamux-gate.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/tmuxview/streamux-gate.stderr.log</string>
+</dict>
+</plist>

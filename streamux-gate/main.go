@@ -29,6 +29,7 @@ const (
 )
 
 type Config struct {
+	Stdout   bool   `mapstructure:"stdout"`
 	LogFile  string `mapstructure:"logFile"`
 	LogLevel string `mapstructure:"logLevel"`
 	Port     int    `mapstructure:"port"`
@@ -51,7 +52,7 @@ func parseLogLevel(level string) slog.Level {
 	return slog.LevelDebug
 }
 
-func setupLogging(cfg *Config) *lumberjack.Logger {
+func setupOutput(cfg *Config) *lumberjack.Logger {
 	logRotator := &lumberjack.Logger{
 		Filename:   cfg.LogFile,
 		MaxSize:    50,   // Max size in MB
@@ -76,12 +77,18 @@ func setupLogging(cfg *Config) *lumberjack.Logger {
 		},
 	}
 
-	// multiWriter := io.MultiWriter(os.Stdout, logRotator)
-	handler := slog.NewTextHandler(logRotator, opts)
+	var handler slog.Handler
+	if cfg.Stdout && cfg.LogFile != "" {
+		multiWriter := io.MultiWriter(os.Stdout, logRotator)
+		handler = slog.NewTextHandler(multiWriter, opts)
+	} else if cfg.LogFile != "" {
+		handler = slog.NewTextHandler(logRotator, opts)
+	} else {
+		handler = slog.NewTextHandler(os.Stdout, opts)
+	}
+
 	logger := slog.New(handler)
-
 	slog.SetDefault(logger)
-
 	return logRotator
 }
 
@@ -89,15 +96,12 @@ func setupConfig(filePath string) *Config {
 	v := viper.New()
 	v.SetConfigFile(filePath)
 	v.SetConfigType("yaml")
+	v.SetDefault("Stdout", true)
+	v.SetDefault("LogLevel", "info")
 	err := v.ReadInConfig()
 
 	if err != nil {
 		fmt.Println(fmt.Errorf("failed to read config: %w", err))
-		os.Exit(1)
-	}
-
-	if v.IsSet("logFile") == false {
-		fmt.Println("Missing mandatory config 'LogFile'")
 		os.Exit(1)
 	}
 
@@ -106,20 +110,13 @@ func setupConfig(filePath string) *Config {
 		os.Exit(1)
 	}
 
-	if v.IsSet("logLevel") == false {
-		fmt.Println("Missing mandatory config 'logLevel'")
-		os.Exit(1)
-	}
-
 	var cfg Config
-
 	if err := v.Unmarshal(&cfg); err != nil {
 		fmt.Println(fmt.Errorf("failed to unmarshal config: %w", err))
 		os.Exit(1)
 	}
 
 	return &cfg
-
 }
 
 func printUsage() {
@@ -145,7 +142,7 @@ func main() {
 	configFilePath := os.Args[2]
 	cfg := setupConfig(configFilePath)
 
-	logRotator := setupLogging(cfg)
+	logRotator := setupOutput(cfg)
 	defer logRotator.Close()
 	slog.Info("Starting program")
 

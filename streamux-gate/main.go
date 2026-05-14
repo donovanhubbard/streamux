@@ -211,7 +211,10 @@ func displaySplashScreen(next ssh.Handler) ssh.Handler {
 				ShadowStyle:            ansifonts.MediumShade,
 			}
 			rendered := ansifonts.RenderTextWithOptions("STREAMUX", font, options)
+			// Use the alt screen
 			sess.Write([]byte("\x1b[?1049h"))
+			// Hide cursor
+			sess.Write([]byte("\x1b[?25l"))
 			titleLength := 46
 
 			paddingWidth := (ptyReq.Window.Width - titleLength) / 2
@@ -227,10 +230,6 @@ func displaySplashScreen(next ssh.Handler) ssh.Handler {
 				}
 				sess.Write([]byte(line + "\r\n"))
 			}
-			for range paddingWidth {
-				sess.Write([]byte(" "))
-			}
-			sess.Write([]byte("          " + DISCORD_LINK + "\r\n"))
 
 			cmdString := []string{"sleep", "4"}
 			slog.Debug("executing", "command", strings.Join(cmdString, " "))
@@ -254,6 +253,9 @@ func displaySplashScreen(next ssh.Handler) ssh.Handler {
 
 			io.Copy(sess, ptmx)
 			_ = cmd.Wait()
+
+			// Restore the cursor
+			sess.Write([]byte("\x1b[?25h"))
 
 			next(sess)
 		}

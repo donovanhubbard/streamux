@@ -411,7 +411,35 @@ And you're done! Reference your server with the IP 10.0.0.1.
 
 
 
+# Loggging
 
+```
+sudo iptables -A FORWARD -p tcp --dport 2222 \
+  -j LOG --log-prefix "SSH-IN: " --log-level 4
+```
 
+Write the file `/etc/rsyslog.d/10-iptables.conf`
 
+```
+:msg, contains, "SSH-IN: " /var/log/iptables-ssh.log
+& stop
+```
 
+```
+sudo systemctl restart rsyslog
+```
+
+Add this to your /etc/logrotate.d/rsyslog file
+ 
+```
+    rotate 7             # Keep 7 old log files
+    daily                # Rotate the log every day
+    missingok            # Don't error if the file is missing
+    notifempty           # Don't rotate if the file is empty
+    compress             # Compress old logs (gzip)
+    delaycompress        # Delay compression until the next cycle
+    postrotate           # Run this command after rotation
+        /usr/lib/rsyslog/rsyslog-rotate
+    endscript
+}
+```

@@ -22,7 +22,7 @@
 
     <!-- Keeps the service running; if it crashes, it restarts -->
     <key>KeepAlive</key>
-    <true/>
+    <false/>
 
     <!-- Recommended: Logs for debugging -->
     <key>StandardOutPath</key>

@@ -1,4 +1,7 @@
 
+run:
+	go run *.go -c ./streamux-gate.yaml
+
 build:
 	go build -o streamux-gate
 

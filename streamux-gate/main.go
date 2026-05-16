@@ -1,25 +1,15 @@
 package main
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"slices"
-	"strings"
-	"time"
 
 	"charm.land/wish/v2"
-	"github.com/charmbracelet/ssh"
-	"github.com/creack/pty"
 	"github.com/donovanhubbard/wishsplash"
 	"github.com/spf13/viper"
 	"github.com/superstarryeyes/bit/ansifonts"
-	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 const (
@@ -36,63 +26,6 @@ type Config struct {
 	LogFile  string `mapstructure:"logFile"`
 	LogLevel string `mapstructure:"logLevel"`
 	Port     int    `mapstructure:"port"`
-}
-
-func parseLogLevel(level string) slog.Level {
-	switch strings.ToLower(level) {
-	case "debug":
-		return slog.LevelDebug
-	case "info":
-		return slog.LevelInfo
-	case "warn", "warning":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		fmt.Errorf("invalid log level: %s", level)
-		os.Exit(1)
-	}
-	return slog.LevelDebug
-}
-
-func setupOutput(cfg *Config) *lumberjack.Logger {
-	logRotator := &lumberjack.Logger{
-		Filename:   cfg.LogFile,
-		MaxSize:    50,   // Max size in MB
-		MaxBackups: 3,    // Number of backups
-		MaxAge:     30,   // Days
-		Compress:   true, // Enable compression
-	}
-
-	logLevel := parseLogLevel(cfg.LogLevel)
-
-	opts := &slog.HandlerOptions{
-		Level: logLevel,
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			// Check if the current attribute is the 'time' key
-			if a.Key == slog.TimeKey {
-				// Get the time value and format it using a 12-hour layout
-				// "03:04:05PM" is the Go reference for 12-hour format with AM/PM
-				t := a.Value.Time()
-				return slog.String(slog.TimeKey, t.Format("2006-01-02 03:04:05PM -7:00"))
-			}
-			return a
-		},
-	}
-
-	var handler slog.Handler
-	if cfg.Stdout && cfg.LogFile != "" {
-		multiWriter := io.MultiWriter(os.Stdout, logRotator)
-		handler = slog.NewTextHandler(multiWriter, opts)
-	} else if cfg.LogFile != "" {
-		handler = slog.NewTextHandler(logRotator, opts)
-	} else {
-		handler = slog.NewTextHandler(os.Stdout, opts)
-	}
-
-	logger := slog.New(handler)
-	slog.SetDefault(logger)
-	return logRotator
 }
 
 func setupConfig(filePath string) *Config {
@@ -183,6 +116,7 @@ func main() {
 			tmuxValidator,
 			//wishsplash.WithLogger(opts, charmLogger),
 			wishsplash.WithOptions(opts),
+			activeTerm,
 			slogMiddleware,
 		),
 	)
@@ -198,173 +132,4 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("Server terminated")
-
-}
-
-func tmuxValidator(next ssh.Handler) ssh.Handler {
-	return func(sess ssh.Session) {
-		slog.Debug("Checking for socket.", "path", TMUX_SOCK_PATH)
-		_, err := os.Stat(TMUX_SOCK_PATH)
-		if errors.Is(err, os.ErrNotExist) {
-			slog.Error("tmux socket is missing.", "path", TMUX_SOCK_PATH)
-			sess.Write([]byte("We're sorry but the streaming hasn't started yet.\r\n"))
-			sess.Exit(1)
-		}
-
-		slog.Debug("Socket found")
-		cmdString := []string{TMUX_PATH, "-S", TMUX_SOCK_PATH, "list-clients"}
-		slog.Debug("executing", "command", strings.Join(cmdString, " "))
-
-		cmd := exec.Command(cmdString[0], cmdString[1:]...)
-		out, err := cmd.Output()
-		slog.Debug("Command ran.", "STDOUT", out)
-		if err != nil {
-			slog.Error("Error", "error", err)
-			sess.Write([]byte("We're sorry but the streaming hasn't started yet.\r\n"))
-			sess.Exit(1)
-		}
-
-		exitCode := cmd.ProcessState.ExitCode()
-		slog.Debug("Exit code", "code", exitCode)
-
-		if exitCode != 0 {
-			slog.Error("Tmux server not running on socket", "path", TMUX_SOCK_PATH)
-			sess.Write([]byte("We're sorry but the streaming hasn't started yet.\r\n"))
-			sess.Exit(1)
-		}
-		next(sess)
-	}
-}
-
-func slogMiddleware(next ssh.Handler) ssh.Handler {
-	return func(sess ssh.Session) {
-		ct := time.Now()
-		hpk := sess.PublicKey() != nil
-		pty, _, _ := sess.Pty()
-		slog.Info(
-			"User connected",
-			"user", sess.User(),
-			"remote-addr", sess.RemoteAddr().String(),
-			"public-key", hpk,
-			"command", sess.Command(),
-			"term", pty.Term,
-			"width", pty.Window.Width,
-			"height", pty.Window.Height,
-			"client-version", sess.Context().ClientVersion(),
-		)
-
-		next(sess)
-		slog.Info(
-			"User disconnected",
-			"user", sess.User(),
-			"remote-addr", sess.RemoteAddr().String(),
-			"duration", time.Since(ct),
-		)
-	}
-}
-
-func setWindowSize(win ssh.Window, ptmx *os.File) {
-	pty.Setsize(ptmx, &pty.Winsize{
-		Rows: uint16(win.Height),
-		Cols: uint16(win.Width),
-	})
-}
-
-func tmuxHandler(next ssh.Handler) ssh.Handler {
-	return func(sess ssh.Session) {
-		ptyReq, winCh, ok := sess.Pty()
-		if !ok {
-			slog.Error(
-				"A session did not have an acceptable tty",
-				"source address",
-				sess.RemoteAddr().String(),
-			)
-			sess.Exit(1)
-		}
-
-		// Start or attach to a tmux session
-		cmd := exec.CommandContext(
-			context.Background(),
-			TMUX_PATH,
-			"-S",
-			TMUX_SOCK_PATH,
-			"attach-session",
-			"-r",
-		)
-
-		// TERM handling matters for tmux
-		cmd.Env = append(cmd.Env,
-			"TERM="+ptyReq.Term,
-			"LANG=en_US.UTF-8",
-		)
-
-		// Start assigns a pseudo-terminal tty os.File to c.Stdin, c.Stdout,
-		// and c.Stderr, calls c.Start, and returns the File of the tty's
-		// corresponding pty.
-		ptmx, err := pty.Start(cmd)
-		if err != nil {
-			slog.Error("Failed to start command on ssh session.", err, err)
-			return
-		}
-		defer ptmx.Close()
-
-		// Handle window resize
-		go func() {
-			for win := range winCh {
-				setWindowSize(win, ptmx)
-			}
-		}()
-
-		go func() {
-			escape_sequence := []byte{CTRL_B, byte('d')}
-			bPressed := false
-			for {
-				buffer := make([]byte, 1024)
-				n, err := sess.Read(buffer)
-
-				if err != nil {
-					if !errors.Is(err, io.EOF) {
-						slog.Error("Failed to read from TTY", "error", err)
-						return
-					}
-				}
-
-				if bPressed && buffer[0] == byte('d') {
-					slog.Info(
-						"User ended session by pressing escape sequence",
-						"address",
-						sess.RemoteAddr().String())
-					buffer = escape_sequence
-					ptmx.Write(buffer[:2])
-					continue
-				}
-
-				if buffer[0] == CTRL_B {
-					bPressed = true
-				} else {
-					bPressed = false
-				}
-
-				if slices.Index(buffer[:n], CTRL_C) >= 0 {
-					slog.Info(
-						"User ended session by pressing escape sequence",
-						"address",
-						sess.RemoteAddr().String())
-					buffer = escape_sequence
-					ptmx.Write(buffer[:2])
-					continue
-				}
-			}
-		}()
-
-		// Set initial window size
-		setWindowSize(ptyReq.Window, ptmx)
-
-		io.Copy(sess, ptmx)
-
-		_ = cmd.Wait()
-
-		sess.Write([]byte(DISCORD_LINK + "\r\n"))
-		next(sess)
-	}
 }

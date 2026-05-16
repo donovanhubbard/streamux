@@ -21,12 +21,12 @@ func activeTerm(next ssh.Handler) ssh.Handler {
 		if !containsPty {
 			slog.Error(
 				"A session did not have an acceptable tty",
-				"source address",
+				"source",
 				sess.RemoteAddr().String(),
 			)
 			sess.Exit(1)
 		} else {
-			slog.Debug("Contains an active PTY session")
+			slog.Debug("Contains an active PTY session", "source", sess.RemoteAddr().String())
 			next(sess)
 		}
 	}
@@ -34,32 +34,32 @@ func activeTerm(next ssh.Handler) ssh.Handler {
 
 func tmuxValidator(next ssh.Handler) ssh.Handler {
 	return func(sess ssh.Session) {
-		slog.Debug("Checking for socket.", "path", TMUX_SOCK_PATH)
+		slog.Debug("Checking for socket.", "path", TMUX_SOCK_PATH, "source", sess.RemoteAddr().String())
 		_, err := os.Stat(TMUX_SOCK_PATH)
 		if errors.Is(err, os.ErrNotExist) {
-			slog.Error("tmux socket is missing.", "path", TMUX_SOCK_PATH)
+			slog.Error("tmux socket is missing.", "path", TMUX_SOCK_PATH, "source", sess.RemoteAddr().String())
 			sess.Write([]byte("We're sorry but the streaming hasn't started yet.\r\n"))
 			sess.Exit(1)
 		}
 
-		slog.Debug("Socket found")
+		slog.Debug("Socket found", "source", sess.RemoteAddr().String())
 		cmdString := []string{TMUX_PATH, "-S", TMUX_SOCK_PATH, "list-clients"}
-		slog.Debug("executing", "command", strings.Join(cmdString, " "))
+		slog.Debug("executing", "command", strings.Join(cmdString, " "), "source", sess.RemoteAddr().String())
 
 		cmd := exec.Command(cmdString[0], cmdString[1:]...)
 		out, err := cmd.Output()
-		slog.Debug("Command ran.", "STDOUT", out)
+		slog.Debug("Command ran.", "STDOUT", out, "source", sess.RemoteAddr().String())
 		if err != nil {
-			slog.Error("Error", "error", err)
+			slog.Error("Error", "error", err, "source", sess.RemoteAddr().String())
 			sess.Write([]byte("We're sorry but the streaming hasn't started yet.\r\n"))
 			sess.Exit(1)
 		}
 
 		exitCode := cmd.ProcessState.ExitCode()
-		slog.Debug("Exit code", "code", exitCode)
+		slog.Debug("Exit code", "code", exitCode, "source", sess.RemoteAddr().String())
 
 		if exitCode != 0 {
-			slog.Error("Tmux server not running on socket", "path", TMUX_SOCK_PATH)
+			slog.Error("Tmux server not running on socket", "path", TMUX_SOCK_PATH, "source", sess.RemoteAddr().String())
 			sess.Write([]byte("We're sorry but the streaming hasn't started yet.\r\n"))
 			sess.Exit(1)
 		}
@@ -75,7 +75,7 @@ func slogMiddleware(next ssh.Handler) ssh.Handler {
 		slog.Info(
 			"User connected",
 			"user", sess.User(),
-			"remote-addr", sess.RemoteAddr().String(),
+			"source", sess.RemoteAddr().String(),
 			"public-key", hpk,
 			"command", sess.Command(),
 			"term", pty.Term,
@@ -88,7 +88,7 @@ func slogMiddleware(next ssh.Handler) ssh.Handler {
 		slog.Info(
 			"User disconnected",
 			"user", sess.User(),
-			"remote-addr", sess.RemoteAddr().String(),
+			"source", sess.RemoteAddr().String(),
 			"duration", time.Since(ct),
 		)
 	}
@@ -119,7 +119,7 @@ func tmuxHandler(next ssh.Handler) ssh.Handler {
 		// corresponding pty.
 		ptmx, err := pty.Start(cmd)
 		if err != nil {
-			slog.Error("Failed to start command on ssh session.", err, err)
+			slog.Error("Failed to start command on ssh session.", err, err, "source", sess.RemoteAddr().String())
 			return
 		}
 		defer ptmx.Close()
@@ -140,7 +140,7 @@ func tmuxHandler(next ssh.Handler) ssh.Handler {
 
 				if err != nil {
 					if !errors.Is(err, io.EOF) {
-						slog.Error("Failed to read from TTY", "error", err)
+						slog.Error("Failed to read from TTY", "error", err, "source", sess.RemoteAddr().String())
 						return
 					}
 				}
@@ -148,7 +148,7 @@ func tmuxHandler(next ssh.Handler) ssh.Handler {
 				if bPressed && buffer[0] == byte('d') {
 					slog.Info(
 						"User ended session by pressing escape sequence",
-						"address",
+						"source",
 						sess.RemoteAddr().String())
 					buffer = escape_sequence
 					ptmx.Write(buffer[:2])
@@ -164,7 +164,7 @@ func tmuxHandler(next ssh.Handler) ssh.Handler {
 				if slices.Index(buffer[:n], CTRL_C) >= 0 {
 					slog.Info(
 						"User ended session by pressing escape sequence",
-						"address",
+						"source",
 						sess.RemoteAddr().String())
 					buffer = escape_sequence
 					ptmx.Write(buffer[:2])

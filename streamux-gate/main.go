@@ -1,12 +1,18 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
+	"time"
 
 	"charm.land/wish/v2"
+	"github.com/charmbracelet/ssh"
 	"github.com/donovanhubbard/wishsplash"
 	"github.com/spf13/viper"
 	"github.com/superstarryeyes/bit/ansifonts"
@@ -125,11 +131,29 @@ func main() {
 		os.Exit(1)
 	}
 
+	done := make(chan os.Signal, 1)
+	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+
 	slog.Info("Starting SSH listener", "address", address)
 
-	if err := s.ListenAndServe(); err != nil {
-		slog.Error("Failed to start listener", "error", err)
-		os.Exit(1)
+	go func() {
+		err := s.ListenAndServe()
+		if err != nil && !errors.Is(err, ssh.ErrServerClosed) {
+			slog.Error("Failed to start listener", "error", err)
+			os.Exit(1)
+		} else {
+			slog.Debug("Exited cleanly from go routine")
+		}
+	}()
+
+	<-done
+
+	slog.Info("Stopping SSH server")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer func() { cancel() }()
+	if err := s.Shutdown(ctx); err != nil && !errors.Is(err, ssh.ErrServerClosed) {
+		slog.Error("could not stop server", "error", err)
 	}
+
 	slog.Info("Server terminated")
 }

@@ -263,6 +263,13 @@ func slogMiddleware(next ssh.Handler) ssh.Handler {
 	}
 }
 
+func setWindowSize(win ssh.Window, ptmx *os.File) {
+	pty.Setsize(ptmx, &pty.Winsize{
+		Rows: uint16(win.Height),
+		Cols: uint16(win.Width),
+	})
+}
+
 func tmuxHandler(next ssh.Handler) ssh.Handler {
 	return func(sess ssh.Session) {
 		ptyReq, winCh, ok := sess.Pty()
@@ -304,10 +311,7 @@ func tmuxHandler(next ssh.Handler) ssh.Handler {
 		// Handle window resize
 		go func() {
 			for win := range winCh {
-				_ = pty.Setsize(ptmx, &pty.Winsize{
-					Rows: uint16(win.Height),
-					Cols: uint16(win.Width),
-				})
+				setWindowSize(win, ptmx)
 			}
 		}()
 
@@ -352,6 +356,9 @@ func tmuxHandler(next ssh.Handler) ssh.Handler {
 				}
 			}
 		}()
+
+		// Set initial window size
+		setWindowSize(ptyReq.Window, ptmx)
 
 		io.Copy(sess, ptmx)
 

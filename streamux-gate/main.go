@@ -16,6 +16,7 @@ import (
 	"charm.land/wish/v2"
 	"github.com/charmbracelet/ssh"
 	"github.com/creack/pty"
+	"github.com/donovanhubbard/wishsplash"
 	"github.com/spf13/viper"
 	"github.com/superstarryeyes/bit/ansifonts"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -148,6 +149,29 @@ func main() {
 	defer logRotator.Close()
 	slog.Info("Starting program")
 
+	opts := wishsplash.Options{
+		Font:  "8bitfortress",
+		Text:  "STREAMUX",
+		Delay: 3,
+		RenderOptions: ansifonts.RenderOptions{
+			CharSpacing:            1,
+			WordSpacing:            3,
+			LineSpacing:            1,
+			TextColor:              "#FF0000",
+			GradientColor:          "#00FF00",
+			UseGradient:            true,
+			GradientDirection:      ansifonts.LeftRight,
+			Alignment:              ansifonts.CenterAlign,
+			ScaleFactor:            2.0,
+			ShadowEnabled:          false,
+			ShadowHorizontalOffset: 2,
+			ShadowVerticalOffset:   1,
+			ShadowStyle:            ansifonts.MediumShade,
+		},
+	}
+	// charmLogger := charmLog.New(os.Stderr)
+	// charmLogger.SetLevel(charmLog.DebugLevel)
+
 	address := fmt.Sprintf("%s:%d", HOST, cfg.Port)
 	s, err := wish.NewServer(
 		wish.WithAddress(address),
@@ -156,8 +180,9 @@ func main() {
 		// Middlewares are executed in reverse order they are added
 		wish.WithMiddleware(
 			tmuxHandler,
-			displaySplashScreen,
 			tmuxValidator,
+			//wishsplash.WithLogger(opts, charmLogger),
+			wishsplash.WithOptions(opts),
 			slogMiddleware,
 		),
 	)
@@ -174,92 +199,6 @@ func main() {
 	}
 	slog.Info("Server terminated")
 
-}
-
-func displaySplashScreen(next ssh.Handler) ssh.Handler {
-	return func(sess ssh.Session) {
-		slog.Debug("Displaying splash screen")
-		ptyReq, _, ok := sess.Pty()
-		if !ok {
-			slog.Error(
-				"A session did not have an acceptable tty",
-				"source address",
-				sess.RemoteAddr().String(),
-			)
-			return
-		}
-
-		font, err := ansifonts.LoadFont("entercommand")
-		if err != nil {
-			slog.Error("Failed to load font entercommand.", "error", err)
-		} else {
-
-			// Advanced rendering with options
-			options := ansifonts.RenderOptions{
-				CharSpacing:            1,
-				WordSpacing:            3,
-				LineSpacing:            1,
-				TextColor:              "#FF0000",
-				GradientColor:          "#00FF00",
-				UseGradient:            true,
-				GradientDirection:      ansifonts.LeftRight,
-				Alignment:              ansifonts.CenterAlign,
-				ScaleFactor:            0.5,
-				ShadowEnabled:          false,
-				ShadowHorizontalOffset: 2,
-				ShadowVerticalOffset:   1,
-				ShadowStyle:            ansifonts.MediumShade,
-			}
-			rendered := ansifonts.RenderTextWithOptions("STREAMUX", font, options)
-			// Use the alt screen
-			sess.Write([]byte("\x1b[?1049h"))
-			// Hide cursor
-			sess.Write([]byte("\x1b[?25l"))
-			titleLength := 46
-
-			paddingWidth := (ptyReq.Window.Width - titleLength) / 2
-			paddingHeight := (ptyReq.Window.Height - 8) / 2
-
-			for range paddingHeight {
-				sess.Write([]byte("\r\n"))
-			}
-
-			for _, line := range rendered {
-				for range paddingWidth {
-					sess.Write([]byte(" "))
-				}
-				sess.Write([]byte(line + "\r\n"))
-			}
-
-			cmdString := []string{"sleep", "4"}
-			slog.Debug("executing", "command", strings.Join(cmdString, " "))
-
-			cmd := exec.Command(cmdString[0], cmdString[1:]...)
-
-			cmd.Env = append(cmd.Env,
-				"TERM="+ptyReq.Term,
-				"LANG=en_US.UTF-8",
-			)
-
-			// Start assigns a pseudo-terminal tty os.File to c.Stdin, c.Stdout,
-			// and c.Stderr, calls c.Start, and returns the File of the tty's
-			// corresponding pty.
-			ptmx, err := pty.Start(cmd)
-			if err != nil {
-				slog.Error("Failed to start command on ssh session.", err, err)
-				return
-			}
-			defer ptmx.Close()
-
-			io.Copy(sess, ptmx)
-			_ = cmd.Wait()
-
-			// Restore the cursor
-			sess.Write([]byte("\x1b[?25h"))
-
-			next(sess)
-		}
-	}
 }
 
 func tmuxValidator(next ssh.Handler) ssh.Handler {

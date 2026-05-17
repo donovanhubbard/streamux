@@ -443,3 +443,26 @@ Add this to your /etc/logrotate.d/rsyslog file
     endscript
 }
 ```
+
+# HA Proxy
+Install HA Proxy
+Edit the config file at `/etc/haproxy/haproxy.cfg`
+```
+defaults
+        log     global
+        mode    tcp
+        timeout client 1h
+        timeout server 1h
+
+frontend ssh_frontend
+        bind *:22
+        default_backend macbook
+
+backend macbook
+        server mac 10.0.0.2:2222 send-proxy
+```
+
+Restart HA proxy
+```
+sudo systemctl restart haproxy
+```

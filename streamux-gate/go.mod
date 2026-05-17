@@ -3,25 +3,25 @@ module github.com/donovanhubbard/streamux/streamuxgate
 go 1.26.2
 
 require (
-	charm.land/log/v2 v2.0.0
-	charm.land/wish/v2 v2.0.1
-	github.com/charmbracelet/ssh v0.0.0-20250826160808-ebfa259c7309
 	github.com/creack/pty v1.1.24
-	github.com/donovanhubbard/wishsplash v0.2.0
+	github.com/donovanhubbard/ssh v0.0.0-20260517040246-8eb9dd2a5ae2
+	github.com/donovanhubbard/wish v0.0.0-20260517051453-cc9347bb3d06
+	github.com/donovanhubbard/wishsplash v0.2.1-0.20260517052137-dc64fcc54b48
 	github.com/spf13/viper v1.21.0
 	github.com/superstarryeyes/bit v0.3.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
 require (
-	charm.land/bubbletea/v2 v2.0.2 // indirect
-	charm.land/lipgloss/v2 v2.0.2 // indirect
+	charm.land/bubbletea/v2 v2.0.6 // indirect
+	charm.land/lipgloss/v2 v2.0.3 // indirect
+	charm.land/log/v2 v2.0.0 // indirect
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d // indirect
 	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/keygen v0.5.4 // indirect
-	github.com/charmbracelet/ultraviolet v0.0.0-20260205113103-524a6607adb8 // indirect
-	github.com/charmbracelet/x/ansi v0.11.6 // indirect
+	github.com/charmbracelet/ultraviolet v0.0.0-20260416155717-489999b90468 // indirect
+	github.com/charmbracelet/x/ansi v0.11.7 // indirect
 	github.com/charmbracelet/x/conpty v0.1.1 // indirect
 	github.com/charmbracelet/x/errors v0.0.0-20251110184232-6ab307057ac7 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
@@ -32,10 +32,11 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-logfmt/logfmt v0.6.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
-	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
-	github.com/mattn/go-runewidth v0.0.19 // indirect
+	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
+	github.com/mattn/go-runewidth v0.0.23 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
+	github.com/pires/go-proxyproto v0.12.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
@@ -52,4 +53,4 @@ require (
 	golang.org/x/text v0.36.0 // indirect
 )
 
-replace github.com/donovanhubbard/wishsplash => /Users/donovan/code/wishsplash
+replace github.com/donovanhubbard/ssh => /Users/donovan/code/ssh

@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"charm.land/wish/v2"
-	"github.com/charmbracelet/ssh"
+	"github.com/donovanhubbard/ssh"
+	"github.com/donovanhubbard/wish"
 	"github.com/donovanhubbard/wishsplash"
 	"github.com/spf13/viper"
 	"github.com/superstarryeyes/bit/ansifonts"
@@ -115,6 +115,7 @@ func main() {
 	s, err := wish.NewServer(
 		wish.WithAddress(address),
 		wish.WithHostKeyPath(".ssh/term_info_ed25519"),
+		ssh.EnableProxyProtocol(),
 
 		// Middlewares are executed in reverse order they are added
 		wish.WithMiddleware(

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/ssh"
 	"github.com/creack/pty"
+	"github.com/donovanhubbard/ssh"
 )
 
 func activeTerm(next ssh.Handler) ssh.Handler {

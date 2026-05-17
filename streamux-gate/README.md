@@ -5,7 +5,7 @@
 
 
 Streamux-gate is a more secure and production-ready way to host tmux streaming.
-It uses (charm's wish)[https://github.com/charmbracelet/wish] ssh app library
+It uses (charm's wish)[https://github.com/donovanhubbard/wish] ssh app library
 to make a custom ssh server.
 
 # Features
